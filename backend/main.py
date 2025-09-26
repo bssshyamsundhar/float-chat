@@ -36,13 +36,17 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_DEFAULT_KEY_HERE")
 client_gemini = genai.Client(api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.5-flash"
 
+DB_HOST = os.environ.get("DB_HOST", "ep-purple-hall-a1c79c5s-pooler.ap-southeast-1.aws.neon.tech")  
+DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_NAME = os.environ.get("DB_NAME", "neondb")
+DB_USER = os.environ.get("DB_USER", "neondb_owner") 
 DB_CONFIG = {
-    "host": "ep-purple-hall-a1c79c5s-pooler.ap-southeast-1.aws.neon.tech",
-    "database": "neondb",
-    "user": "neondb_owner",
-    "password": "npg_6DqyuGdMm4sU",
-    "port": 5432,
-    "sslmode": "require"
+    "host": DB_HOST,
+    "port": DB_PORT,
+    "dbname": DB_NAME,
+    "user": DB_USER,
+    "password": os.environ.get("DB_PASSWORD", "YOUR_DB_PASSWORD_HERE"),
+    "sslmode": os.environ.get("DB_SSLMODE", "require")
 }
 
 # -----------------------------
