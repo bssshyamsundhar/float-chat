@@ -1,29 +1,35 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Oceanographic Data Assistant | Natural Language Query Interface</title>
-    <meta name="description" content="Advanced oceanographic data chatbot powered by AI. Query ocean temperature, salinity, and pressure data using natural language. Integrated with Gemini AI, PostgreSQL, and vector search." />
-    <meta name="author" content="Oceanographic Research Team" />
-    <meta name="keywords" content="oceanography, ocean data, AI chatbot, natural language processing, marine science, temperature, salinity, pressure, argo floats" />
-
-    <meta property="og:title" content="Oceanographic Data Assistant" />
-    <meta property="og:description" content="Query oceanographic data using natural language. AI-powered chatbot for marine research." />
-    <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
-
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@lovable_dev" />
-    <meta name="twitter:title" content="Oceanographic Data Assistant" />
-    <meta name="twitter:description" content="AI-powered chatbot for querying oceanographic data using natural language" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
-    
-    <!-- Favicon -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+    <style>
+      .top-right-button {
+        position: absolute;
+        top: 15px;
+        right: 20px;
+        padding: 10px 18px;
+        background: #0077b6;
+        color: white;
+        font-size: 0.95rem;
+        font-weight: 500;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        transition: background 0.3s ease, transform 0.2s ease;
+        text-decoration: none;
+      }
+      .top-right-button:hover {
+        background: #023e8a;
+        transform: scale(1.05);
+      }
+    </style>
   </head>
 
   <body>
+    <!-- Navigation Button -->
+    <a href="dashboard.html" class="top-right-button">Go to Dashboard</a>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

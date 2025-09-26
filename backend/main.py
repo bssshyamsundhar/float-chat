@@ -1,37 +1,40 @@
-#!/usr/bin/env python3
 """
 FastAPI Backend for Oceanographic Data Chatbot
-Integrates with the existing Python script functionality
+Integrated with frontend logic for Run Anyway / Refine
 """
 import os
 import re
 import time
-import random
 import uuid
+import random
 import asyncio
 from typing import List, Dict, Any, Optional
+import json
 import psycopg2
 from psycopg2 import pool
 import pandas as pd
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 from google import genai
-from fastapi import FastAPI, HTTPException, WebSocket
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import json
 import logging
+import datetime
 
-# Configure logging
+# -----------------------------
+# Logging
+# -----------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # -----------------------------
-# CONFIG
+# Config
 # -----------------------------
-API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyCEMWD4n6JUClUljshs9xWKMfoEI_oM0TE")
-client_gemini = genai.Client(api_key=API_KEY)
-MODEL = "gemini-2.0-flash-exp"
+API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_DEFAULT_KEY_HERE")
+client_gemini = genai.Client(api_key="AIzaSyCEMWD4n6JUClUljshs9xWKMfoEI_oM0TE")
+MODEL = "gemini-2.5-flash"
 
 DB_CONFIG = {
     "host": "ep-purple-hall-a1c79c5s-pooler.ap-southeast-1.aws.neon.tech",
@@ -43,27 +46,27 @@ DB_CONFIG = {
 }
 
 # -----------------------------
-# Connection pool
+# PostgreSQL connection pool
 # -----------------------------
 try:
     pg_pool = psycopg2.pool.SimpleConnectionPool(1, 10, **DB_CONFIG)
     logger.info("✅ Database connection pool initialized")
 except Exception as e:
-    logger.error(f"❌ Failed to initialize database pool: {e}")
+    logger.error(f"❌ Failed to initialize DB pool: {e}")
     pg_pool = None
 
 # -----------------------------
-# Qdrant Setup
+# Qdrant + embeddings
 # -----------------------------
 QDRANT_URL = "https://d6a02d23-c6aa-4d62-8769-8cbf743f03e6.us-west-2-0.aws.cloud.qdrant.io:6333"
-QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.ZPcwpf5JOOmZGxshXp3IGK-i21jKbSMQ7GQDIgd-sRE"
+QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
 
 try:
-    client_qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    client_qdrant = QdrantClient(url=QDRANT_URL, api_key="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.ZPcwpf5JOOmZGxshXp3IGK-i21jKbSMQ7GQDIgd-sRE")
     embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-    logger.info("✅ Qdrant client and embedding model initialized")
+    logger.info("✅ Qdrant client + embeddings ready")
 except Exception as e:
-    logger.error(f"❌ Failed to initialize Qdrant: {e}")
+    logger.error(f"❌ Failed to init Qdrant: {e}")
     client_qdrant = None
     embedding_model = None
 
@@ -85,19 +88,21 @@ TABLE_COLUMNS = {
 }
 
 # -----------------------------
-# Pydantic Models
+# Pydantic models
 # -----------------------------
 class QueryRequest(BaseModel):
     question: str
     conversation_id: Optional[str] = None
-
+    override: Optional[bool] = False
+    sql_query: Optional[str] = None 
+    
 class QueryResponse(BaseModel):
     response: str
     sql_query: Optional[str] = None
     data: Optional[List[Dict[str, Any]]] = None
     clarification_needed: bool = False
     conversation_id: str
-    message_type: str = "bot"  # bot, user, system, error
+    message_type: str = "bot"
 
 class ChatMessage(BaseModel):
     message: str
@@ -107,7 +112,7 @@ class ChatMessage(BaseModel):
     data: Optional[List[Dict[str, Any]]] = None
 
 # -----------------------------
-# Embedding cache
+# Embedding helper
 # -----------------------------
 embedding_cache = {}
 
@@ -120,32 +125,17 @@ def embed_text(text: str):
     embedding_cache[text] = vec
     return vec
 
-# -----------------------------
-# Qdrant retrieval
-# -----------------------------
-def retrieve_context(question: str, top_k: int = 3):
+def retrieve_context(question: str, top_k: int = 3) -> str:
     if not client_qdrant or not embedding_model:
         return "Schema retrieval unavailable - using basic context"
-    
     try:
         q_vec = embed_text(question)
         if not q_vec:
-            return "Embedding generation failed"
-
-        schema_results = client_qdrant.search(
-            collection_name=SCHEMA_COLLECTION,
-            query_vector=q_vec,
-            limit=top_k
-        )
+            return "Embedding failed"
+        schema_results = client_qdrant.search(collection_name=SCHEMA_COLLECTION, query_vector=q_vec, limit=top_k)
         schema_docs = [p.payload.get("text", "") for p in schema_results]
-
-        example_results = client_qdrant.search(
-            collection_name=EXAMPLE_COLLECTION,
-            query_vector=q_vec,
-            limit=top_k
-        )
+        example_results = client_qdrant.search(collection_name=EXAMPLE_COLLECTION, query_vector=q_vec, limit=top_k)
         example_docs = [f"NL: {p.payload['nl']} -> SQL: {p.payload['sql']}" for p in example_results]
-
         return "\n".join(schema_docs + example_docs)
     except Exception as e:
         logger.error(f"Context retrieval error: {e}")
@@ -157,31 +147,27 @@ def retrieve_context(question: str, top_k: int = 3):
 async def clarify_intent(question: str) -> str:
     try:
         context = retrieve_context(question, top_k=2)
-
         prompt = f"""
-You are a database assistant helping users discover oceanographic data.
+You are a database assistant.
 
 Schema info:
 {context}
 
 User query: "{question}"
 
-Tasks:
-1. If the query is incomplete/ambiguous (missing year, region, platform_number, etc.), 
-   suggest 1-2 clarifying questions.
-2. If the query looks fine, return "CLEAR".
+If the query is incomplete or ambiguous, suggest clarifying questions (1-2 max). 
+Otherwise, return "CLEAR".
 """
-
         response = client_gemini.models.generate_content(model=MODEL, contents=prompt)
         return getattr(response, "text", str(response)).strip()
     except Exception as e:
-        logger.error(f"Intent clarification error: {e}")
-        return "CLEAR"  # Default to proceeding if clarification fails
+        logger.error(f"Clarification error: {e}")
+        return "CLEAR"
 
 # -----------------------------
-# SQL Extraction Helper
+# NL → SQL
 # -----------------------------
-def extract_sql(text: str, table_columns: dict = TABLE_COLUMNS, limit: int = 1000) -> str:
+def extract_sql(text: str, table_columns: dict = TABLE_COLUMNS, limit: int = 500) -> str:
     text = re.sub(r"^```sql|```$", "", text.strip(), flags=re.I | re.M)
     sql_match = re.search(r"(SELECT|WITH|INSERT|UPDATE|DELETE|CREATE)\b.*", text, re.I | re.S)
     sql = sql_match.group(0).strip() if sql_match else text.strip()
@@ -195,39 +181,32 @@ def extract_sql(text: str, table_columns: dict = TABLE_COLUMNS, limit: int = 100
         sql = re.sub(r"SELECT\s+\*\s+FROM\s+" + re.escape(table_name),
                      f"SELECT {col_list} FROM {table_name}", sql, flags=re.I)
 
-    # Add LIMIT safeguard
+    # Add LIMIT
     if not re.search(r"LIMIT\s+\d+", sql, re.I) and not re.search(r"GROUP BY|AVG|SUM|MAX|MIN", sql, re.I):
         sql = sql.rstrip(";") + f" LIMIT {limit};"
-
     return sql
 
-# -----------------------------
-# NL → SQL
-# -----------------------------
-async def nl_to_sql(question: str, retries: int = 3, limit: int = 1000) -> str:
-    context = retrieve_context(question, top_k=3)
+async def nl_to_sql(question: str, retries: int = 3, limit: int = 500) -> str:
+    context = retrieve_context(question)
     prompt = f"""
-You are an AI that converts natural-language questions into SQL queries.
+Convert NL to SQL.
 
-Schema & Examples (retrieved from Qdrant Cloud):
+Schema & Examples:
 {context}
 
 Guidelines:
-- Use only valid PostgreSQL syntax.
-- Avoid SELECT * on large tables, select only key columns.
-- Add LIMIT {limit} to large queries unless aggregation is used.
-- Return only the SQL query, no explanation.
-- Use fully-qualified table names (public.profiles, public.measurements).
-- Use only the column names exactly as given in the schema. Do not invent or guess new columns.
-- If the question cannot be answered with the available schema, respond with: "NO_VALID_SQL".
-- Do not create new columns or tables that are not present in the schema.
-- `platform_number` is the identifier for floats.
-- `profile_id` links `profiles` and `measurements`.
+- Use valid PostgreSQL syntax.
+- Avoid SELECT * on large tables; select key columns.
+- Add LIMIT {limit} unless aggregation is used.
+- Return only SQL, no explanation.
+- Use fully-qualified table names.
+- Columns exactly as in schema.
+- If query cannot be answered, return "NO_VALID_SQL".
+- platform_number identifies floats; profile_id links profiles and measurements.
 
 Q: {question}
 SQL:
 """
-
     for attempt in range(retries):
         try:
             response = client_gemini.models.generate_content(model=MODEL, contents=prompt)
@@ -236,45 +215,54 @@ SQL:
         except Exception as e:
             if "503" in str(e) and attempt < retries - 1:
                 wait = (2 ** attempt) + random.random()
-                logger.warning(f"Gemini overloaded, retrying in {wait:.1f}s...")
                 await asyncio.sleep(wait)
                 continue
-            logger.error(f"SQL generation error: {e}")
             raise e
+    return "NO_VALID_SQL"
 
 # -----------------------------
 # Run SQL
 # -----------------------------
 def run_sql(sql: str):
     if not pg_pool:
-        raise HTTPException(status_code=500, detail="Database connection not available")
-    
+        raise HTTPException(status_code=500, detail="DB connection unavailable")
     conn = pg_pool.getconn()
     try:
         df = pd.read_sql(sql, conn)
-        return df.to_dict('records')
+        return df.to_dict("records")
     finally:
         pg_pool.putconn(conn)
+
+LOG_FILE = "nl_sql_log.jsonl"
+
+LOG_FILE = "nl_sql_log.jsonl"
+
+def log_query(nl_query, sql_query, success, error_msg=None, rows_returned=None, result=None):
+    entry = {
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+        "nl_query": nl_query,
+        "sql_query": sql_query,
+        "success": success,
+        "error": error_msg,
+        "rows_returned": rows_returned,
+        "result": result if result is not None else None
+    }
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
 
 # -----------------------------
 # FastAPI App
 # -----------------------------
-app = FastAPI(
-    title="Oceanographic Data Chatbot API",
-    description="API for querying oceanographic data using natural language",
-    version="1.0.0"
-)
+app = FastAPI(title="Oceanographic Data Chatbot API")
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://localhost:3000", "http://127.0.0.1:8080"],
+    allow_origins=["*"],  # frontend dev
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
-# Store conversations in memory (in production, use a proper database)
 conversations: Dict[str, List[ChatMessage]] = {}
 
 # -----------------------------
@@ -282,11 +270,7 @@ conversations: Dict[str, List[ChatMessage]] = {}
 # -----------------------------
 @app.get("/")
 async def root():
-    return {
-        "message": "Oceanographic Data Chatbot API",
-        "status": "online",
-        "endpoints": ["/query", "/health", "/conversations"]
-    }
+    return {"message": "Oceanographic Data Chatbot API", "status": "online"}
 
 @app.get("/health")
 async def health_check():
@@ -301,108 +285,114 @@ async def health_check():
 async def process_query(request: QueryRequest):
     try:
         conversation_id = request.conversation_id or str(uuid.uuid4())
-        
-        # Initialize conversation if new
         if conversation_id not in conversations:
             conversations[conversation_id] = []
-        
-        # Add user message to conversation
-        user_message = ChatMessage(
+
+        user_msg = ChatMessage(
             message=request.question,
             message_type="user",
             timestamp=str(int(time.time()))
         )
-        conversations[conversation_id].append(user_message)
-        
-        # Check for clarification
-        clarification = await clarify_intent(request.question)
-        
+        conversations[conversation_id].append(user_msg)
+
+        clarification = "CLEAR" if request.override else await clarify_intent(request.question)
+
         if clarification != "CLEAR":
-            bot_message = ChatMessage(
-                message=f"🤔 Your query might need clarification:\n\n{clarification}",
+            sql_query = await nl_to_sql(request.question, limit=500)
+            bot_msg = ChatMessage(
+                message=f"🤔 Your query might need clarification:\n\n{clarification}\n\n👉 You can refine OR run as-is.",
                 message_type="system",
-                timestamp=str(int(time.time()))
-            )
-            conversations[conversation_id].append(bot_message)
-            
-            return QueryResponse(
-                response=bot_message.message,
-                clarification_needed=True,
-                conversation_id=conversation_id,
-                message_type="system"
-            )
-        
-        # Generate SQL
-        sql_query = await nl_to_sql(request.question, limit=500)
-        
-        if sql_query == "NO_VALID_SQL":
-            error_message = "❌ I couldn't generate a valid SQL query for your question. Please try rephrasing or check if you're asking about available data."
-            bot_message = ChatMessage(
-                message=error_message,
-                message_type="error",
-                timestamp=str(int(time.time()))
-            )
-            conversations[conversation_id].append(bot_message)
-            
-            return QueryResponse(
-                response=error_message,
-                conversation_id=conversation_id,
-                message_type="error"
-            )
-        
-        # Execute SQL
-        try:
-            data = run_sql(sql_query)
-            
-            response_text = f"✅ **Query executed successfully!**\n\n**Generated SQL:**\n```sql\n{sql_query}\n```\n\n**Results:** Found {len(data)} records"
-            
-            if len(data) > 0:
-                # Add a sample of the data to the response
-                sample_size = min(5, len(data))
-                response_text += f" (showing first {sample_size}):"
-            
-            bot_message = ChatMessage(
-                message=response_text,
-                message_type="bot",
-                timestamp=str(int(time.time())),
-                sql_query=sql_query,
-                data=data
-            )
-            conversations[conversation_id].append(bot_message)
-            
-            return QueryResponse(
-                response=response_text,
-                sql_query=sql_query,
-                data=data,
-                conversation_id=conversation_id,
-                message_type="bot"
-            )
-            
-        except Exception as e:
-            error_message = f"❌ **SQL Execution Error:**\n\n```sql\n{sql_query}\n```\n\n**Error:** {str(e)}"
-            bot_message = ChatMessage(
-                message=error_message,
-                message_type="error",
                 timestamp=str(int(time.time())),
                 sql_query=sql_query
             )
-            conversations[conversation_id].append(bot_message)
-            
-            return QueryResponse(
-                response=error_message,
+            conversations[conversation_id].append(bot_msg)
+
+            # 🔹 Log clarification stage
+            log_query(
+                nl_query=request.question,
                 sql_query=sql_query,
+                success=False,
+                error_msg="Clarification needed",
+                result=None
+            )
+
+            return QueryResponse(
+                response=bot_msg.message,
+                clarification_needed=True,
+                sql_query=sql_query,
+                conversation_id=conversation_id,
+                message_type="system"
+            )
+
+        # ✅ Respect frontend override
+        if request.override and request.sql_query:
+            sql_query = request.sql_query
+        else:
+            sql_query = await nl_to_sql(request.question, limit=500)
+
+        if sql_query == "NO_VALID_SQL":
+            # 🔹 Log invalid SQL
+            log_query(
+                nl_query=request.question,
+                sql_query=None,
+                success=False,
+                error_msg="NO_VALID_SQL",
+                result=None
+            )
+            return QueryResponse(
+                response="❌ I couldn't generate a valid SQL query.",
                 conversation_id=conversation_id,
                 message_type="error"
             )
-            
+
+        data = run_sql(sql_query)
+
+        # 🔹 Log successful query
+        log_query(
+            nl_query=request.question,
+            sql_query=sql_query,
+            success=True,
+            rows_returned=len(data),
+            result=data   # ✅ store actual results here
+        )
+
+        response_text = f"✅ **Query executed successfully!**\n```sql\n{sql_query}\n```\nFound {len(data)} records"
+
+        bot_msg = ChatMessage(
+            message=response_text,
+            message_type="bot",
+            timestamp=str(int(time.time())),
+            sql_query=sql_query,
+            data=data
+        )
+        conversations[conversation_id].append(bot_msg)
+
+        return QueryResponse(
+            response=response_text,
+            sql_query=sql_query,
+            data=data,
+            conversation_id=conversation_id,
+            message_type="bot"
+        )
+
     except Exception as e:
         logger.error(f"Query processing error: {e}")
-        error_message = f"❌ **System Error:** {str(e)}"
+
+        # 🔹 Log error case
+        log_query(
+            nl_query=request.question,
+            sql_query=request.sql_query,
+            success=False,
+            error_msg=str(e),
+            result=None
+        )
+
         return QueryResponse(
-            response=error_message,
-            conversation_id=conversation_id or str(uuid.uuid4()),
+            response=f"❌ System Error: {str(e)}",
+            conversation_id=request.conversation_id or str(uuid.uuid4()),
             message_type="error"
         )
+
 
 @app.get("/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str):

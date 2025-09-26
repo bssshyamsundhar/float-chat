@@ -15,6 +15,7 @@ interface Message {
   timestamp: string;
   sql_query?: string;
   data?: any[];
+  clarification_needed?: boolean;
 }
 
 interface ChatInterfaceProps {
@@ -29,70 +30,38 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  useEffect(scrollToBottom, [messages]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  // Add welcome message on mount
+  // Welcome message
   useEffect(() => {
     const welcomeMessage: Message = {
       id: 'welcome',
-      message: `🌊 **Welcome to the Oceanographic Data Assistant!**
-
-I can help you explore oceanographic data using natural language queries. Here are some examples:
-
-• "Show me temperature profiles from platform 5906468"
-• "Find salinity measurements in the Pacific Ocean from 2023"
-• "Get recent profiles near latitude 35, longitude -120"
-• "Show me data from the Mediterranean Sea"
-
-Just ask your question in plain English, and I'll convert it to SQL and fetch the data for you!`,
+      message: `🌊 **Welcome to the Oceanographic Data Assistant!**\n\nI can help you explore oceanographic data using natural language queries.`,
       message_type: 'system',
-      timestamp: Date.now().toString()
+      timestamp: Date.now().toString(),
     };
     setMessages([welcomeMessage]);
   }, []);
 
-  const sendMessage = async () => {
-    if (!input.trim() || isLoading) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      message: input,
-      message_type: 'user',
-      timestamp: Date.now().toString()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
+  // ----------------- API -----------------
+  const sendQuery = async (question: string, override = false, sql?: string) => {
     setIsLoading(true);
-
     try {
       const response = await fetch('http://localhost:8000/query', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: input,
-          conversation_id: conversationId || undefined
+          question,
+          conversation_id: conversationId || undefined,
+          override,
+          sql_query: sql,
         }),
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      
-      // Update conversation ID if new
-      if (data.conversation_id && !conversationId) {
-        setConversationId(data.conversation_id);
-      }
+
+      if (data.conversation_id && !conversationId) setConversationId(data.conversation_id);
 
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -100,31 +69,24 @@ Just ask your question in plain English, and I'll convert it to SQL and fetch th
         message_type: data.message_type,
         timestamp: Date.now().toString(),
         sql_query: data.sql_query,
-        data: data.data
+        data: data.data,
+        clarification_needed: data.clarification_needed,
       };
 
       setMessages(prev => [...prev, botMessage]);
 
-      // Show toast for successful queries
-      if (data.message_type === 'bot' && data.data && data.data.length > 0) {
-        toast({
-          title: "Query Successful",
-          description: `Found ${data.data.length} records`,
-        });
+      if (data.message_type === 'bot' && data.data?.length) {
+        toast({ title: "Query Successful", description: `Found ${data.data.length} records` });
       }
-
     } catch (error) {
-      console.error('Error sending message:', error);
-      
+      console.error(error);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        message: `❌ **Connection Error:** Unable to connect to the server. Please make sure the backend is running on port 8000.\n\n**Error details:** ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: `❌ Connection Error: ${(error as Error).message}`,
         message_type: 'error',
-        timestamp: Date.now().toString()
+        timestamp: Date.now().toString(),
       };
-
       setMessages(prev => [...prev, errorMessage]);
-      
       toast({
         title: "Connection Error",
         description: "Unable to connect to the server",
@@ -132,6 +94,37 @@ Just ask your question in plain English, and I'll convert it to SQL and fetch th
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || isLoading) return;
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      message: input,
+      message_type: 'user',
+      timestamp: Date.now().toString(),
+    };
+    setMessages(prev => [...prev, userMessage]);
+    const question = input;
+    setInput('');
+    await sendQuery(question);
+  };
+
+  // ✅ Run Anyway should use the last generated SQL
+  const handleRunAnyway = async (message: Message) => {
+    await sendQuery(
+      message.message,       // original natural language question
+      true,                  // override flag
+      message.sql_query      // use the SQL the model generated
+    );
+  };
+
+  // ✅ Refine Query should recall the last USER query
+  const handleRefine = (message: Message) => {
+    const lastUserMessage = [...messages].reverse().find(m => m.message_type === 'user');
+    if (lastUserMessage) {
+      setInput(lastUserMessage.message);  // prefill user query for editing
     }
   };
 
@@ -145,14 +138,11 @@ Just ask your question in plain English, and I'll convert it to SQL and fetch th
   const clearChat = () => {
     setMessages([]);
     setConversationId('');
-    // Re-add welcome message
     const welcomeMessage: Message = {
       id: 'welcome-new',
-      message: `🌊 **Chat cleared!** 
-
-Feel free to ask me anything about the oceanographic data. I'm here to help you explore temperature, salinity, and pressure measurements from ocean floats worldwide.`,
+      message: `🌊 Chat cleared! Feel free to ask me anything about oceanographic data.`,
       message_type: 'system',
-      timestamp: Date.now().toString()
+      timestamp: Date.now().toString(),
     };
     setMessages([welcomeMessage]);
   };
@@ -160,55 +150,52 @@ Feel free to ask me anything about the oceanographic data. I'm here to help you 
   return (
     <div className={`flex flex-col h-full bg-gradient-to-br from-background to-secondary/30 ${className}`}>
       <ChatHeader onClearChat={clearChat} />
-      
-      {/* Messages Container */}
+
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message) => (
-          <div key={message.id} className="space-y-3">
-            <ChatMessage message={message} />
-            
-            {/* Data Table */}
-            {message.data && message.data.length > 0 && (
+        {messages.map(msg => (
+          <div key={msg.id} className="space-y-3">
+            <ChatMessage
+              message={msg}
+              onRunAnyway={handleRunAnyway}
+              onRefine={handleRefine}
+            />
+            {msg.data?.length > 0 && (
               <Card className="p-4 border-l-4 border-accent">
                 <div className="flex items-center gap-2 mb-3">
                   <Database className="h-4 w-4 text-accent" />
-                  <span className="font-medium text-sm">Query Results ({message.data.length} records)</span>
+                  <span className="font-medium text-sm">
+                    Query Results ({msg.data.length} records)
+                  </span>
                 </div>
-                <DataTable data={message.data} />
+                <DataTable data={msg.data} />
               </Card>
             )}
           </div>
         ))}
-        
-        {/* Loading Message */}
+
         {isLoading && (
           <div className="flex justify-start">
             <Card className="max-w-[80%] p-4 chat-message-bot">
               <div className="flex items-center gap-2">
                 <Waves className="h-4 w-4 animate-pulse text-accent" />
                 <span>Processing your query</span>
-                <div className="typing-dots">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
+                <div className="typing-dots"><span></span><span></span><span></span></div>
               </div>
             </Card>
           </div>
         )}
-        
+
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       <div className="border-t bg-card/50 p-4">
         <div className="flex gap-2 max-w-4xl mx-auto">
           <div className="flex-1 relative">
             <Input
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={e => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Ask about oceanographic data... (e.g., 'Show me temperature data from the Atlantic Ocean')"
+              placeholder="Ask about oceanographic data..."
               disabled={isLoading}
               className="pr-20 bg-background/80 backdrop-blur-sm border-border/50 focus:border-accent"
             />
@@ -225,7 +212,7 @@ Feel free to ask me anything about the oceanographic data. I'm here to help you 
             <Send className="h-4 w-4" />
           </Button>
         </div>
-        
+
         <div className="flex justify-center mt-2">
           <p className="text-xs text-muted-foreground">
             Powered by Gemini AI • Connected to Neon PostgreSQL • Vector search via Qdrant
