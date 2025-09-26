@@ -1,73 +1,145 @@
-# Welcome to your Lovable project
+# FloatChat Demo 🚢💬
 
-## Project info
+Welcome to **FloatChat Demo** – an oceanographic data chatbot platform that lets you explore, query, and visualize ocean data with the power of AI and modern web technologies.
 
-**URL**: https://lovable.dev/projects/d1c039f5-2c66-4993-8600-0d9a9b44700d
+---
 
-## How can I edit this code?
+## 🌊 What is FloatChat?
 
-There are several ways of editing your application.
+FloatChat is a full-stack application designed for interactive exploration of oceanographic datasets. Ask natural language questions, get instant answers, and visualize data – all in one place. Powered by FastAPI, NeonDB, Qdrant, Google Gemini, and a modern React frontend.
 
-**Use Lovable**
+---
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/d1c039f5-2c66-4993-8600-0d9a9b44700d) and start prompting.
+## 🏗️ Project Structure
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```
+app/
+│
+├── backend/           # FastAPI backend, database, embeddings, API
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── .env.example
+│   └── start.bat / start.sh
+│
+├── public/            # Static assets (favicon, robots.txt, etc.)
+│
+├── src/               # React frontend source code
+│   ├── components/    # UI components (Chat, DataTable, etc.)
+│   ├── hooks/         # Custom React hooks
+│   ├── lib/           # Utility functions
+│   ├── pages/         # App pages (Index, NotFound)
+│   └── App.tsx        # Main app entry
+│
+├── index.html         # Frontend entry point
+├── dashboard.html     # Optional dashboard
+├── package.json       # Frontend dependencies
+├── tailwind.config.ts # Tailwind CSS config
+└── README.md          # You're reading it!
 ```
 
-**Edit a file directly in GitHub**
+---
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## 🚀 Getting Started
 
-**Use GitHub Codespaces**
+### 1. **Clone the Repo**
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```bash
+git clone https://github.com/yourusername/floatchat-demo.git
+cd floatchat-demo/app
+```
 
-## What technologies are used for this project?
+### 2. **Backend Setup**
 
-This project is built with:
+- Install Python dependencies:
+  ```bash
+  pip install -r backend/requirements.txt
+  ```
+- Copy `.env.example` to `.env` and fill in your API/database keys.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+- Start the FastAPI backend:
+  ```bash
+  cd backend
+  uvicorn main:app --reload
+  ```
+  Or use `start.bat` / `start.sh` for quick launch.
 
-## How can I deploy this project?
+### 3. **Frontend Setup**
 
-Simply open [Lovable](https://lovable.dev/projects/d1c039f5-2c66-4993-8600-0d9a9b44700d) and click on Share -> Publish.
+- Install Node.js dependencies:
+  ```bash
+  npm install
+  ```
+- Start the frontend dev server:
+  ```bash
+  npm run dev
+  ```
+- Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-## Can I connect a custom domain to my Lovable project?
+---
 
-Yes, you can!
+## 🧠 Features
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+- **Natural Language to SQL**: Ask questions, get SQL queries and answers.
+- **Ocean Data Visualization**: View profiles, measurements, and more.
+- **Embeddings & Search**: Semantic search powered by Qdrant and Sentence Transformers.
+- **Conversational UI**: Modern chat interface with React + Tailwind.
+- **Multi-platform**: Works on Windows, Mac, Linux.
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+---
+
+## 🛠️ Tech Stack
+
+- **Backend**: FastAPI, NeonDB (PostgreSQL), Qdrant, Google Gemini, Sentence Transformers
+- **Frontend**: React, TypeScript, Vite, Tailwind CSS
+- **Dev Tools**: Bun, ESLint, PostCSS
+
+---
+
+## 📦 Environment Variables
+
+Create a `.env` file in `backend/` with:
+
+```
+GEMINI_API_KEY=your_google_gemini_api_key
+QDRANT_API_KEY=your_qdrant_api_key
+DB_HOST=your_neondb_host
+DB_USER=your_neondb_user
+DB_PASSWORD=your_neondb_password
+DB_NAME=your_neondb_dbname
+```
+
+---
+
+## 🧪 Testing
+
+- Backend: Use `pytest` for Python tests.
+- Frontend: Use `npm test` or your favorite React testing library.
+
+---
+
+## 🤝 Contributing
+
+Pull requests, issues, and suggestions are welcome!  
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
+
+## 📚 Documentation
+
+- [FastAPI Docs](https://fastapi.tiangolo.com/)
+- [NeonDB Docs](https://neon.tech/docs)
+- [Qdrant Docs](https://qdrant.tech/documentation/)
+- [Google Gemini](https://ai.google.dev/)
+- [React](https://react.dev/)
+- [Tailwind CSS](https://tailwindcss.com/)
+
+---
+
+## 🏄‍♂️ License
+
+MIT License.  
+See [LICENSE](LICENSE) for details.
+
+---
+
+**Dive in, ask questions, and let FloatChat help you explore the depths of your data!**
