@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 # -----------------------------
 # Config
 # -----------------------------
-API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_DEFAULT_KEY_HERE")
-client_gemini = genai.Client(api_key="AIzaSyCEMWD4n6JUClUljshs9xWKMfoEI_oM0TE")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_DEFAULT_KEY_HERE")
+client_gemini = genai.Client(api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.5-flash"
 
 DB_CONFIG = {
@@ -62,7 +62,7 @@ QDRANT_URL = "https://d6a02d23-c6aa-4d62-8769-8cbf743f03e6.us-west-2-0.aws.cloud
 QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
 
 try:
-    client_qdrant = QdrantClient(url=QDRANT_URL, api_key="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.ZPcwpf5JOOmZGxshXp3IGK-i21jKbSMQ7GQDIgd-sRE")
+    client_qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
     embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
     logger.info("✅ Qdrant client + embeddings ready")
 except Exception as e:
